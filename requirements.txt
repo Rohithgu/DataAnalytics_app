@@ -1,0 +1,11 @@
+mcp[cli]
+pandas
+numpy
+matplotlib
+seaborn
+flask
+scikit-learn
+openpyxl
+sqlalchemy
+pymysql
+python-dotenv
