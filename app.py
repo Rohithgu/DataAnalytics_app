@@ -1,20 +1,17 @@
-import os
-import re
-import json
-import sqlite3
-
-import numpy as np
-import pandas as pd
-import plotly.express as px
 import streamlit as st
-
+import pandas as pd
+import numpy as np
+import plotly.express as px
 from dotenv import load_dotenv
 from google import genai
-
+import os
+import io
 
 # ============================================================
-# 1. PAGE CONFIGURATION
+# CONFIGURATION
 # ============================================================
+
+load_dotenv()
 
 st.set_page_config(
     page_title="AI Data Analyst",
@@ -23,33 +20,292 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # ============================================================
-# 2. LOAD ENVIRONMENT VARIABLES
-# ============================================================
-
-load_dotenv()
-
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-
-# ============================================================
-# 3. GEMINI CLIENT
+# GEMINI CONFIGURATION
 # ============================================================
 
-if API_KEY:
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-    client = genai.Client(
-        api_key=API_KEY
-    )
+gemini_client = None
 
-else:
-
-    client = None
+if GEMINI_API_KEY:
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception:
+        gemini_client = None
 
 
 # ============================================================
-# 4. SESSION STATE
+# CUSTOM CSS
+# ============================================================
+
+st.markdown("""
+<style>
+
+    /* ==============================
+       GLOBAL
+    ============================== */
+
+    .stApp {
+        background: #f7f8fc;
+        color: #172033;
+    }
+
+    .main .block-container {
+        padding: 2rem 2.5rem 3rem 2.5rem;
+        max-width: 1500px;
+    }
+
+    /* ==============================
+       SIDEBAR
+    ============================== */
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(
+            180deg,
+            #111827 0%,
+            #172033 100%
+        );
+        min-width: 280px;
+    }
+
+    section[data-testid="stSidebar"] > div {
+        padding-top: 1rem;
+    }
+
+    section[data-testid="stSidebar"] * {
+        color: #f8fafc;
+    }
+
+    .sidebar-logo {
+        font-size: 23px;
+        font-weight: 800;
+        padding: 10px 5px 25px 5px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        margin-bottom: 25px;
+    }
+
+    .sidebar-logo span {
+        background: linear-gradient(
+            90deg,
+            #60a5fa,
+            #8b5cf6
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .sidebar-section {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #94a3b8 !important;
+        margin-top: 25px;
+        margin-bottom: 10px;
+    }
+
+    /* ==============================
+       HEADER
+    ============================== */
+
+    .top-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .page-title {
+        font-size: 36px;
+        font-weight: 800;
+        color: #172033;
+        margin-bottom: 5px;
+    }
+
+    .page-subtitle {
+        font-size: 16px;
+        color: #64748b;
+        margin-bottom: 25px;
+    }
+
+    .gemini-online {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #ecfdf3;
+        color: #16a34a;
+        border: 1px solid #bbf7d0;
+        padding: 10px 18px;
+        border-radius: 25px;
+        font-weight: 700;
+    }
+
+    /* ==============================
+       METRIC CARDS
+    ============================== */
+
+    .metric-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 15px;
+        padding: 22px;
+        min-height: 130px;
+        box-shadow: 0 4px 15px rgba(15,23,42,0.05);
+    }
+
+    .metric-label {
+        font-size: 14px;
+        color: #64748b;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    .metric-value {
+        font-size: 32px;
+        font-weight: 800;
+        color: #172033;
+    }
+
+    .metric-icon {
+        font-size: 27px;
+        margin-bottom: 10px;
+    }
+
+    /* ==============================
+       CARDS
+    ============================== */
+
+    .content-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 15px;
+        padding: 22px;
+        box-shadow: 0 4px 15px rgba(15,23,42,0.04);
+        margin-bottom: 20px;
+    }
+
+    .card-title {
+        font-size: 19px;
+        font-weight: 750;
+        color: #172033;
+        margin-bottom: 5px;
+    }
+
+    .card-description {
+        color: #64748b;
+        font-size: 14px;
+        margin-bottom: 15px;
+    }
+
+    /* ==============================
+       AI CARD
+    ============================== */
+
+    .ai-card {
+        background: linear-gradient(
+            135deg,
+            #ffffff 0%,
+            #f5f3ff 100%
+        );
+        border: 1px solid #ddd6fe;
+        border-radius: 18px;
+        padding: 25px;
+        box-shadow: 0 5px 20px rgba(124,58,237,0.08);
+        margin-top: 20px;
+    }
+
+    .ai-title {
+        color: #6d4aff;
+        font-size: 22px;
+        font-weight: 800;
+    }
+
+    .ai-description {
+        color: #64748b;
+        margin-bottom: 15px;
+    }
+
+    /* ==============================
+       BUTTONS
+    ============================== */
+
+    .stButton > button {
+        border-radius: 10px;
+        border: 1px solid #ddd6fe;
+        background: white;
+        color: #5b3cc4;
+        font-weight: 650;
+        min-height: 42px;
+    }
+
+    .stButton > button:hover {
+        border-color: #7c3aed;
+        color: #7c3aed;
+        background: #f5f3ff;
+    }
+
+    /* ==============================
+       FILE UPLOADER
+    ============================== */
+
+    [data-testid="stFileUploader"] {
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+    }
+
+    /* ==============================
+       DATAFRAME
+    ============================== */
+
+    [data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    /* ==============================
+       TABS
+    ============================== */
+
+    button[data-baseweb="tab"] {
+        font-weight: 650;
+        color: #64748b;
+    }
+
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #6d4aff;
+    }
+
+    /* ==============================
+       INPUTS
+    ============================== */
+
+    textarea,
+    input {
+        color: #172033 !important;
+    }
+
+    textarea::placeholder,
+    input::placeholder {
+        color: #94a3b8 !important;
+    }
+
+    /* ==============================
+       FOOTER
+    ============================== */
+
+    .footer {
+        text-align: center;
+        color: #94a3b8;
+        padding: 30px;
+        font-size: 13px;
+    }
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# SESSION STATE
 # ============================================================
 
 if "df" not in st.session_state:
@@ -58,4156 +314,770 @@ if "df" not in st.session_state:
 if "file_name" not in st.session_state:
     st.session_state.file_name = None
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
 
 # ============================================================
-# 5. CUSTOM CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    /* ======================================================
-       MAIN APPLICATION
-       ====================================================== */
-
-    .stApp {
-
-        background:
-            linear-gradient(
-                135deg,
-                #0b1020 0%,
-                #111827 50%,
-                #0f172a 100%
-            );
-
-        color: #f8fafc;
-    }
-
-
-    /* ======================================================
-       SIDEBAR
-       ====================================================== */
-
-    section[data-testid="stSidebar"] {
-
-        background:
-            linear-gradient(
-                180deg,
-                #0f172a,
-                #111827
-            );
-
-        border-right:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.08
-            );
-    }
-
-
-    /* ======================================================
-       HEADINGS
-       ====================================================== */
-
-    h1,
-    h2,
-    h3 {
-
-        color: #f8fafc !important;
-    }
-
-
-    /* ======================================================
-       MAIN TITLE
-       ====================================================== */
-
-    .main-title {
-
-        font-size: 42px;
-
-        font-weight: 800;
-
-        margin-bottom: 4px;
-
-        background:
-            linear-gradient(
-                90deg,
-                #60a5fa,
-                #a78bfa,
-                #22d3ee
-            );
-
-        -webkit-background-clip: text;
-
-        -webkit-text-fill-color:
-            transparent;
-    }
-
-
-    .subtitle {
-
-        color: #94a3b8;
-
-        font-size: 16px;
-
-        margin-bottom: 25px;
-    }
-
-
-    /* ======================================================
-       STATUS
-       ====================================================== */
-
-    .status-online {
-
-        display: inline-block;
-
-        padding:
-            7px 14px;
-
-        border-radius: 20px;
-
-        background:
-            rgba(
-                34,
-                197,
-                94,
-                0.12
-            );
-
-        border:
-            1px solid
-            rgba(
-                34,
-                197,
-                94,
-                0.35
-            );
-
-        color: #4ade80;
-
-        font-size: 13px;
-
-        font-weight: 600;
-    }
-
-
-    .status-offline {
-
-        display: inline-block;
-
-        padding:
-            7px 14px;
-
-        border-radius: 20px;
-
-        background:
-            rgba(
-                239,
-                68,
-                68,
-                0.12
-            );
-
-        border:
-            1px solid
-            rgba(
-                239,
-                68,
-                68,
-                0.35
-            );
-
-        color: #f87171;
-
-        font-size: 13px;
-
-        font-weight: 600;
-    }
-
-
-    /* ======================================================
-       KPI CARDS
-       ====================================================== */
-
-    .kpi-card {
-
-        background:
-            rgba(
-                255,
-                255,
-                255,
-                0.045
-            );
-
-        border:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.09
-            );
-
-        border-radius: 18px;
-
-        padding: 20px;
-
-        min-height: 120px;
-
-        box-shadow:
-            0 8px 30px
-            rgba(
-                0,
-                0,
-                0,
-                0.20
-            );
-
-        transition:
-            transform 0.2s ease;
-    }
-
-
-    .kpi-card:hover {
-
-        transform:
-            translateY(-3px);
-    }
-
-
-    .kpi-icon {
-
-        font-size: 26px;
-
-        margin-bottom: 10px;
-    }
-
-
-    .kpi-label {
-
-        color: #94a3b8;
-
-        font-size: 13px;
-
-        text-transform:
-            uppercase;
-
-        letter-spacing:
-            0.08em;
-    }
-
-
-    .kpi-value {
-
-        color: #f8fafc;
-
-        font-size: 30px;
-
-        font-weight: 800;
-
-        margin-top: 5px;
-    }
-
-
-    /* ======================================================
-       PANELS
-       ====================================================== */
-
-    .glass-panel {
-
-        background:
-            rgba(
-                255,
-                255,
-                255,
-                0.035
-            );
-
-        border:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.08
-            );
-
-        border-radius: 20px;
-
-        padding: 22px;
-
-        margin-bottom: 20px;
-    }
-
-
-    /* ======================================================
-       CHAT
-       ====================================================== */
-
-    .ai-message {
-
-        background:
-            rgba(
-                255,
-                255,
-                255,
-                0.06
-            );
-
-        border:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.08
-            );
-
-        padding:
-            14px 18px;
-
-        border-radius:
-            18px 18px 18px 4px;
-
-        margin:
-            12px 0;
-
-        color: #e2e8f0;
-
-        max-width: 90%;
-    }
-
-
-    /* ======================================================
-       VERIFIED BADGE
-       ====================================================== */
-
-    .exact-badge {
-
-        display: inline-block;
-
-        padding:
-            6px 12px;
-
-        border-radius:
-            15px;
-
-        background:
-            rgba(
-                34,
-                197,
-                94,
-                0.12
-            );
-
-        color: #4ade80;
-
-        border:
-            1px solid
-            rgba(
-                34,
-                197,
-                94,
-                0.3
-            );
-
-        font-size: 12px;
-
-        font-weight: 700;
-    }
-
-
-    /* ======================================================
-       FEATURE CARDS
-       ====================================================== */
-
-    .feature-card {
-
-        background:
-            rgba(
-                255,
-                255,
-                255,
-                0.035
-            );
-
-        border:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.08
-            );
-
-        border-radius: 16px;
-
-        padding: 18px;
-
-        height: 100%;
-    }
-
-
-    .feature-icon {
-
-        font-size: 28px;
-
-        margin-bottom: 8px;
-    }
-
-
-    .feature-title {
-
-        font-weight: 700;
-
-        color: #f8fafc;
-
-        margin-bottom: 5px;
-    }
-
-
-    .feature-text {
-
-        color: #94a3b8;
-
-        font-size: 13px;
-
-        line-height: 1.5;
-    }
-
-
-    /* ======================================================
-       FILE UPLOADER
-       ====================================================== */
-
-    [data-testid="stFileUploader"] {
-
-        background:
-            rgba(
-                255,
-                255,
-                255,
-                0.035
-            );
-
-        border-radius: 15px;
-
-        padding: 8px;
-    }
-
-
-    /* ======================================================
-       BUTTONS
-       ====================================================== */
-
-    .stButton > button {
-
-        border-radius:
-            10px;
-
-        border:
-            1px solid
-            rgba(
-                255,
-                255,
-                255,
-                0.12
-            );
-
-        font-weight: 600;
-
-        transition:
-            all 0.2s ease;
-    }
-
-
-    .stButton > button:hover {
-
-        transform:
-            translateY(-1px);
-
-        border-color:
-            #60a5fa;
-    }
-
-
-    /* ======================================================
-       FOOTER
-       ====================================================== */
-
-    .footer {
-
-        text-align:
-            center;
-
-        color:
-            #64748b;
-
-        font-size:
-            12px;
-
-        padding:
-            25px 0;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# 6. LOAD DATASET
-# ============================================================
-
-def load_dataset(uploaded_file):
-
-    filename = uploaded_file.name.lower()
-
-
-    # --------------------------------------------------------
-    # CSV
-    # --------------------------------------------------------
-
-    if filename.endswith(".csv"):
-
-        encodings = [
-            "utf-8",
-            "utf-8-sig",
-            "cp1252",
-            "latin1"
-        ]
-
-        for encoding in encodings:
-
-            try:
-
-                uploaded_file.seek(0)
-
-                return pd.read_csv(
-                    uploaded_file,
-                    encoding=encoding
-                )
-
-            except UnicodeDecodeError:
-
-                continue
-
-        raise ValueError(
-            "Could not decode the CSV file."
-        )
-
-
-    # --------------------------------------------------------
-    # XLSX
-    # --------------------------------------------------------
-
-    if filename.endswith(".xlsx"):
-
-        uploaded_file.seek(0)
-
-        return pd.read_excel(
-            uploaded_file
-        )
-
-
-    # --------------------------------------------------------
-    # XLS
-    # --------------------------------------------------------
-
-    if filename.endswith(".xls"):
-
-        uploaded_file.seek(0)
-
-        return pd.read_excel(
-            uploaded_file
-        )
-
-
-    raise ValueError(
-        "Only CSV, XLSX and XLS files are supported."
-    )
-
-
-# ============================================================
-# 7. COLUMN NAME NORMALIZATION
-# ============================================================
-
-def normalize_column_name(column):
-
-    return (
-        str(column)
-        .strip()
-        .lower()
-        .replace("_", " ")
-        .replace("-", " ")
-        .replace("/", " ")
-    )
-
-
-# ============================================================
-# 8. FIND COLUMN
-# ============================================================
-
-def find_column(
-    df,
-    names=None,
-    contains=None
-):
-
-    names = names or set()
-
-    contains = contains or []
-
-
-    # Exact match
-
-    for column in df.columns:
-
-        normalized = (
-            normalize_column_name(
-                column
-            )
-        )
-
-        if normalized in names:
-
-            return column
-
-
-    # Partial match
-
-    for column in df.columns:
-
-        normalized = (
-            normalize_column_name(
-                column
-            )
-        )
-
-        for word in contains:
-
-            if word in normalized:
-
-                return column
-
-
-    return None
-
-
-# ============================================================
-# 9. FIND CLASS COLUMN
-# ============================================================
-
-def find_class_column(df):
-
-    return find_column(
-
-        df,
-
-        names={
-            "class",
-            "class name",
-            "class number",
-            "standard"
-        },
-
-        contains=[
-            "class"
-        ]
-
-    )
-
-
-# ============================================================
-# 10. FIND GRADE COLUMN
-# ============================================================
-
-def find_grade_column(df):
-
-    return find_column(
-
-        df,
-
-        names={
-            "grade",
-            "grades",
-            "result grade",
-            "final grade"
-        },
-
-        contains=[
-            "grade"
-        ]
-
-    )
-
-
-# ============================================================
-# 11. FIND LOCATION COLUMN
-# ============================================================
-
-def find_location_column(df):
-
-    return find_column(
-
-        df,
-
-        names={
-            "city",
-            "city name",
-            "location",
-            "place",
-            "town",
-            "district",
-            "student city",
-            "student location",
-            "hometown",
-            "home town",
-            "address"
-        },
-
-        contains=[
-            "city",
-            "location",
-            "district",
-            "hometown"
-        ]
-
-    )
-
-
-# ============================================================
-# 12. NORMALIZE CLASS
-# ============================================================
-
-def normalize_class(value):
-
-    if pd.isna(value):
-
-        return None
-
-
-    text = str(
-        value
-    ).strip()
-
-
-    match = re.search(
-        r"(\d+)",
-        text
-    )
-
-
-    if match:
-
-        return int(
-            match.group(1)
-        )
-
-
-    return None
-
-
-# ============================================================
-# 13. NORMALIZE GRADE
-# ============================================================
-
-def normalize_grade(value):
-
-    if pd.isna(value):
-
-        return ""
-
-
-    return (
-        str(value)
-        .strip()
-        .upper()
-    )
-
-
-# ============================================================
-# 14. EXTRACT GRADE
-# ============================================================
-
-def extract_grade(question):
-
-    match = re.search(
-
-        r"grade\s*"
-        r"['\"]?"
-        r"([a-z])"
-        r"['\"]?",
-
-        question,
-
-        re.IGNORECASE
-
-    )
-
-
-    if match:
-
-        return (
-            match.group(1)
-            .upper()
-        )
-
-
-    return None
-
-
-# ============================================================
-# 15. EXTRACT CLASS
-# ============================================================
-
-def extract_class_number(question):
-
-    match = re.search(
-
-        r"class\s*(\d+)",
-
-        question,
-
-        re.IGNORECASE
-
-    )
-
-
-    if match:
-
-        return int(
-            match.group(1)
-        )
-
-
-    return None
-
-
-# ============================================================
-# 16. EXTRACT LOCATION
-# ============================================================
-
-def extract_location(question):
-
-    patterns = [
-
-        r"(?:from|in|at|near)\s+"
-        r"([A-Za-z][A-Za-z\s\-]+?)"
-        r"\??$",
-
-        r"(?:students from|students in)\s+"
-        r"([A-Za-z][A-Za-z\s\-]+?)"
-        r"\??$"
-
-    ]
-
-
-    for pattern in patterns:
-
-        match = re.search(
-
-            pattern,
-
-            question.strip(),
-
-            re.IGNORECASE
-
-        )
-
-
-        if match:
-
-            location = (
-
-                match.group(1)
-
-                .strip()
-
-                .rstrip("?")
-
-                .strip()
-
-            )
-
-
-            return location
-
-
-    return None
-
-
-# ============================================================
-# 17. COUNT REQUEST
-# ============================================================
-
-def is_count_request(question):
-
-    text = question.lower()
-
-
-    keywords = [
-
-        "how many",
-
-        "number of",
-
-        "count",
-
-        "total number"
-
-    ]
-
-
-    return any(
-
-        word in text
-
-        for word in keywords
-
-    )
-
-
-# ============================================================
-# 18. EACH CLASS REQUEST
-# ============================================================
-
-def is_each_class(question):
-
-    text = question.lower()
-
-
-    phrases = [
-
-        "each class",
-
-        "every class",
-
-        "from each class",
-
-        "by class",
-
-        "class wise",
-
-        "class-wise"
-
-    ]
-
-
-    return any(
-
-        phrase in text
-
-        for phrase in phrases
-
-    )
-
-
-# ============================================================
-# 19. EXACT ANALYSIS ENGINE
-# ============================================================
-
-def exact_analysis(
-    df,
-    question
-):
-
-    text = (
-        question
-        .lower()
-        .strip()
-    )
-
-
-    result = {
-
-        "exact":
-            False,
-
-        "calculated_by":
-            "Pandas",
-
-        "result":
-            None
-
-    }
-
-
-    class_column = (
-        find_class_column(df)
-    )
-
-
-    grade_column = (
-        find_grade_column(df)
-    )
-
-
-    location_column = (
-        find_location_column(df)
-    )
-
-
-    class_number = (
-        extract_class_number(
-            question
-        )
-    )
-
-
-    grade = (
-        extract_grade(
-            question
-        )
-    )
-
-
-    location = (
-        extract_location(
-            question
-        )
-    )
-
-
-    # ========================================================
-    # GRADE BY CLASS
-    # ========================================================
-
-    if (
-
-        grade
-
-        and
-
-        is_each_class(
-            question
-        )
-
-        and
-
-        is_count_request(
-            question
-        )
-
-        and
-
-        class_column is not None
-
-        and
-
-        grade_column is not None
-
-    ):
-
-        temp = df.copy()
-
-
-        temp["_class"] = (
-
-            temp[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        temp["_grade"] = (
-
-            temp[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        filtered = temp[
-
-            temp["_grade"]
-
-            == grade
-
-        ]
-
-
-        counts = (
-
-            filtered
-
-            .groupby(
-                "_class"
-            )
-
-            .size()
-
-            .sort_index()
-
-        )
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "grade_by_class",
-
-            "grade":
-                grade,
-
-            "counts": {
-
-                f"Class {int(k)}":
-                    int(v)
-
-                for k, v
-                in counts.items()
-
-                if pd.notna(k)
-
-            },
-
-            "total":
-                int(
-                    len(filtered)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # LOCATION COUNT
-    # ========================================================
-
-    if (
-
-        location
-
-        and
-
-        is_count_request(
-            question
-        )
-
-        and
-
-        location_column is not None
-
-    ):
-
-        values = (
-
-            df[location_column]
-
-            .astype(str)
-
-            .str.strip()
-
-            .str.casefold()
-
-        )
-
-
-        filtered = df[
-
-            values
-
-            == location.casefold()
-
-        ]
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "location_count",
-
-            "location":
-                location,
-
-            "column":
-                str(location_column),
-
-            "count":
-                int(
-                    len(filtered)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # CITY DISTRIBUTION
-    # ========================================================
-
-    if (
-
-        location_column is not None
-
-        and
-
-        (
-
-            "each city"
-            in text
-
-            or
-
-            "every city"
-            in text
-
-            or
-
-            "by city"
-            in text
-
-            or
-
-            "city wise"
-            in text
-
-            or
-
-            "city-wise"
-            in text
-
-        )
-
-    ):
-
-        values = (
-
-            df[location_column]
-
-            .astype(str)
-
-            .str.strip()
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-        )
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "location_distribution",
-
-            "counts": {
-
-                str(k):
-                    int(v)
-
-                for k, v
-                in counts.items()
-
-            }
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # CLASS + GRADE
-    # ========================================================
-
-    if (
-
-        class_number is not None
-
-        and
-
-        grade is not None
-
-        and
-
-        is_count_request(
-            question
-        )
-
-        and
-
-        class_column is not None
-
-        and
-
-        grade_column is not None
-
-    ):
-
-        class_values = (
-
-            df[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        grade_values = (
-
-            df[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        filtered = df[
-
-            (class_values == class_number)
-
-            &
-
-            (grade_values == grade)
-
-        ]
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "class_grade_count",
-
-            "class":
-                f"Class {class_number}",
-
-            "grade":
-                grade,
-
-            "count":
-                int(
-                    len(filtered)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # CLASS COUNT
-    # ========================================================
-
-    if (
-
-        class_number is not None
-
-        and
-
-        is_count_request(
-            question
-        )
-
-        and
-
-        class_column is not None
-
-    ):
-
-        values = (
-
-            df[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        filtered = df[
-
-            values == class_number
-
-        ]
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "class_count",
-
-            "class":
-                f"Class {class_number}",
-
-            "count":
-                int(
-                    len(filtered)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # GRADE COUNT
-    # ========================================================
-
-    if (
-
-        grade is not None
-
-        and
-
-        is_count_request(
-            question
-        )
-
-        and
-
-        grade_column is not None
-
-    ):
-
-        values = (
-
-            df[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        filtered = df[
-
-            values == grade
-
-        ]
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "grade_count",
-
-            "grade":
-                grade,
-
-            "count":
-                int(
-                    len(filtered)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # CLASS DISTRIBUTION
-    # ========================================================
-
-    if (
-
-        class_column is not None
-
-        and
-
-        (
-
-            "each class"
-            in text
-
-            or
-
-            "every class"
-            in text
-
-            or
-
-            "by class"
-            in text
-
-            or
-
-            "class wise"
-            in text
-
-            or
-
-            "class-wise"
-            in text
-
-        )
-
-    ):
-
-        values = (
-
-            df[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-        )
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "class_distribution",
-
-            "counts": {
-
-                f"Class {int(k)}":
-                    int(v)
-
-                for k, v
-                in counts.items()
-
-                if pd.notna(k)
-
-            }
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # GRADE DISTRIBUTION
-    # ========================================================
-
-    if (
-
-        grade_column is not None
-
-        and
-
-        (
-
-            "grade distribution"
-            in text
-
-            or
-
-            "each grade"
-            in text
-
-            or
-
-            "by grade"
-            in text
-
-            or
-
-            "grade wise"
-            in text
-
-            or
-
-            "grade-wise"
-            in text
-
-        )
-
-    ):
-
-        values = (
-
-            df[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-        )
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "grade_distribution",
-
-            "counts": {
-
-                str(k):
-                    int(v)
-
-                for k, v
-                in counts.items()
-
-            }
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # MISSING VALUES
-    # ========================================================
-
-    if (
-
-        "missing"
-        in text
-
-        or
-
-        "null"
-        in text
-
-    ):
-
-        missing = (
-            df.isna()
-            .sum()
-        )
-
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "missing_values",
-
-            "total":
-                int(
-                    missing.sum()
-                ),
-
-            "by_column": {
-
-                str(k):
-                    int(v)
-
-                for k, v
-                in missing.items()
-
-                if v > 0
-
-            }
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # DUPLICATES
-    # ========================================================
-
-    if "duplicate" in text:
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "duplicate_count",
-
-            "count":
-                int(
-                    df.duplicated()
-                    .sum()
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # TOTAL ROWS
-    # ========================================================
-
-    if (
-
-        "total students"
-        in text
-
-        or
-
-        "total records"
-        in text
-
-        or
-
-        "how many rows"
-        in text
-
-        or
-
-        "how many records"
-        in text
-
-    ):
-
-        result["exact"] = True
-
-
-        result["result"] = {
-
-            "type":
-                "total_rows",
-
-            "count":
-                int(
-                    len(df)
-                )
-
-        }
-
-
-        return result
-
-
-    # ========================================================
-    # FALLBACK
-    # ========================================================
-
-    result["result"] = {
-
-        "type":
-            "unsupported",
-
-        "message":
-            "No exact analysis operation detected.",
-
-        "columns":
-            list(
-                df.columns
-            )
-
-    }
-
-
-    return result
-
-
-# ============================================================
-# 20. DESCRIPTIVE STATISTICS
-# ============================================================
-
-def descriptive_statistics(df):
-
-    numeric_df = (
-        df.select_dtypes(
-            include=np.number
-        )
-    )
-
-
-    if numeric_df.empty:
-
-        return pd.DataFrame()
-
-
-    rows = []
-
-
-    for column in numeric_df.columns:
-
-        series = (
-            pd.to_numeric(
-                numeric_df[column],
-                errors="coerce"
-            )
-            .dropna()
-        )
-
-
-        if series.empty:
-
-            continue
-
-
-        # ----------------------------------------------------
-        # MODE
-        # ----------------------------------------------------
-
-        modes = (
-            series
-            .mode()
-            .tolist()
-        )
-
-
-        if modes:
-
-            if len(modes) <= 3:
-
-                mode_value = ", ".join(
-                    str(
-                        round(
-                            float(value),
-                            2
-                        )
-                    )
-                    for value in modes
-                )
-
-            else:
-
-                mode_value = (
-                    f"{len(modes)} modes"
-                )
-
-        else:
-
-            mode_value = "No mode"
-
-
-        # ----------------------------------------------------
-        # CREATE ROW
-        # ----------------------------------------------------
-
-        rows.append({
-
-            "Column":
-                str(column),
-
-            "Count":
-                int(
-                    series.count()
-                ),
-
-            "Mean":
-                round(
-                    float(
-                        series.mean()
-                    ),
-                    2
-                ),
-
-            "Median":
-                round(
-                    float(
-                        series.median()
-                    ),
-                    2
-                ),
-
-            "Mode":
-                mode_value,
-
-            "Std Dev":
-                round(
-                    float(
-                        series.std()
-                    ),
-                    2
-                ),
-
-            "Minimum":
-                round(
-                    float(
-                        series.min()
-                    ),
-                    2
-                ),
-
-            "25%":
-                round(
-                    float(
-                        series.quantile(
-                            0.25
-                        )
-                    ),
-                    2
-                ),
-
-            "50%":
-                round(
-                    float(
-                        series.quantile(
-                            0.50
-                        )
-                    ),
-                    2
-                ),
-
-            "75%":
-                round(
-                    float(
-                        series.quantile(
-                            0.75
-                        )
-                    ),
-                    2
-                ),
-
-            "Maximum":
-                round(
-                    float(
-                        series.max()
-                    ),
-                    2
-                )
-
-        })
-
-
-    return pd.DataFrame(
-        rows
-    )
-
-
-# ============================================================
-# 21. CHART DETECTION
-# ============================================================
-
-def detect_chart(question):
-
-    text = question.lower()
-
-
-    if (
-
-        "bar chart"
-        in text
-
-        or
-
-        "bar graph"
-        in text
-
-        or
-
-        "bar plot"
-        in text
-
-    ):
-
-        return "bar"
-
-
-    if (
-
-        "pie chart"
-        in text
-
-        or
-
-        "pie graph"
-        in text
-
-    ):
-
-        return "pie"
-
-
-    if (
-
-        "line chart"
-        in text
-
-        or
-
-        "line graph"
-        in text
-
-        or
-
-        "trend"
-        in text
-
-    ):
-
-        return "line"
-
-
-    if (
-
-        "scatter plot"
-        in text
-
-        or
-
-        "scatter chart"
-        in text
-
-    ):
-
-        return "scatter"
-
-
-    return None
-
-
-# ============================================================
-# 22. CREATE CHART DATA
-# ============================================================
-
-def create_chart_data(
-    df,
-    question,
-    chart_type
-):
-
-    text = question.lower()
-
-
-    class_column = (
-        find_class_column(df)
-    )
-
-
-    grade_column = (
-        find_grade_column(df)
-    )
-
-
-    location_column = (
-        find_location_column(df)
-    )
-
-
-    grade = (
-        extract_grade(
-            question
-        )
-    )
-
-
-    # ========================================================
-    # GRADE BY CLASS
-    # ========================================================
-
-    if (
-
-        chart_type == "bar"
-
-        and
-
-        grade
-
-        and
-
-        is_each_class(
-            question
-        )
-
-        and
-
-        class_column is not None
-
-        and
-
-        grade_column is not None
-
-    ):
-
-        temp = df.copy()
-
-
-        temp["_class"] = (
-
-            temp[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        temp["_grade"] = (
-
-            temp[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        filtered = temp[
-
-            temp["_grade"]
-            == grade
-
-        ]
-
-
-        counts = (
-
-            filtered
-
-            .groupby(
-                "_class"
-            )
-
-            .size()
-
-            .sort_index()
-
-            .reset_index(
-                name="Students"
-            )
-
-        )
-
-
-        counts["Class"] = (
-
-            counts["_class"]
-
-            .apply(
-
-                lambda x:
-                f"Class {int(x)}"
-
-            )
-
-        )
-
-
-        return counts[
-
-            [
-                "Class",
-                "Students"
-            ]
-
-        ]
-
-
-    # ========================================================
-    # CITY
-    # ========================================================
-
-    if (
-
-        chart_type == "bar"
-
-        and
-
-        location_column is not None
-
-        and
-
-        (
-
-            "city"
-            in text
-
-            or
-
-            "cities"
-            in text
-
-            or
-
-            "location"
-            in text
-
-        )
-
-    ):
-
-        values = (
-
-            df[location_column]
-
-            .astype(str)
-
-            .str.strip()
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .head(20)
-
-            .reset_index()
-
-        )
-
-
-        counts.columns = [
-
-            "City",
-            "Students"
-
-        ]
-
-
-        return counts
-
-
-    # ========================================================
-    # CLASS
-    # ========================================================
-
-    if (
-
-        chart_type == "bar"
-
-        and
-
-        class_column is not None
-
-        and
-
-        "class"
-        in text
-
-        and
-
-        grade is None
-
-    ):
-
-        values = (
-
-            df[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-            .reset_index()
-
-        )
-
-
-        counts.columns = [
-
-            "Class",
-            "Students"
-
-        ]
-
-
-        counts["Class"] = (
-
-            counts["Class"]
-
-            .apply(
-
-                lambda x:
-                f"Class {int(x)}"
-
-            )
-
-        )
-
-
-        return counts
-
-
-    # ========================================================
-    # GRADE
-    # ========================================================
-
-    if (
-
-        chart_type == "bar"
-
-        and
-
-        grade_column is not None
-
-        and
-
-        "grade"
-        in text
-
-        and
-
-        grade is None
-
-    ):
-
-        values = (
-
-            df[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-            .reset_index()
-
-        )
-
-
-        counts.columns = [
-
-            "Grade",
-            "Students"
-
-        ]
-
-
-        return counts
-
-
-    # ========================================================
-    # PIE - GRADE
-    # ========================================================
-
-    if (
-
-        chart_type == "pie"
-
-        and
-
-        grade_column is not None
-
-        and
-
-        "grade"
-        in text
-
-    ):
-
-        values = (
-
-            df[grade_column]
-
-            .apply(
-                normalize_grade
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-            .reset_index()
-
-        )
-
-
-        counts.columns = [
-
-            "Grade",
-            "Students"
-
-        ]
-
-
-        return counts
-
-
-    # ========================================================
-    # PIE - CLASS
-    # ========================================================
-
-    if (
-
-        chart_type == "pie"
-
-        and
-
-        class_column is not None
-
-        and
-
-        "class"
-        in text
-
-    ):
-
-        values = (
-
-            df[class_column]
-
-            .apply(
-                normalize_class
-            )
-
-        )
-
-
-        counts = (
-
-            values
-
-            .value_counts()
-
-            .sort_index()
-
-            .reset_index()
-
-        )
-
-
-        counts.columns = [
-
-            "Class",
-            "Students"
-
-        ]
-
-
-        counts["Class"] = (
-
-            counts["Class"]
-
-            .apply(
-
-                lambda x:
-                f"Class {int(x)}"
-
-            )
-
-        )
-
-
-        return counts
-
-
-    return None
-
-
-# ============================================================
-# 23. DISPLAY CHART
-# ============================================================
-
-def display_chart(
-    data,
-    chart_type,
-    title
-):
-
-    if data is None:
-
-        st.warning(
-            "Unable to create the chart."
-        )
-
-        return
-
-
-    if chart_type == "bar":
-
-        fig = px.bar(
-
-            data,
-
-            x=data.columns[0],
-
-            y=data.columns[1],
-
-            text=data.columns[1],
-
-            title=title
-
-        )
-
-
-    elif chart_type == "pie":
-
-        fig = px.pie(
-
-            data,
-
-            names=data.columns[0],
-
-            values=data.columns[1],
-
-            title=title
-
-        )
-
-
-    elif chart_type == "line":
-
-        fig = px.line(
-
-            data,
-
-            x=data.columns[0],
-
-            y=data.columns[1],
-
-            markers=True,
-
-            title=title
-
-        )
-
-
-    elif chart_type == "scatter":
-
-        fig = px.scatter(
-
-            data,
-
-            x=data.columns[0],
-
-            y=data.columns[1],
-
-            title=title
-
-        )
-
-
-    else:
-
-        return
-
-
-    fig.update_layout(
-
-        template="plotly_dark",
-
-        paper_bgcolor="rgba(0,0,0,0)",
-
-        plot_bgcolor="rgba(0,0,0,0)",
-
-        font=dict(
-            color="#e2e8f0"
-        ),
-
-        margin=dict(
-
-            l=20,
-
-            r=20,
-
-            t=60,
-
-            b=20
-
-        )
-
-    )
-
-
-    st.plotly_chart(
-
-        fig,
-
-        use_container_width=True
-
-    )
-
-
-# ============================================================
-# 24. GEMINI
-# ============================================================
-
-def ask_gemini(
-    df,
-    question,
-    exact_result
-):
-
-    if client is None:
-
-        return (
-            "Gemini API key is not configured."
-        )
-
-
-    prompt = f"""
-
-You are an expert AI Data Analyst.
-
-USER QUESTION:
-
-{question}
-
-
-VERIFIED PYTHON RESULT:
-
-{json.dumps(
-    exact_result,
-    indent=2,
-    default=str
-)}
-
-
-IMPORTANT:
-
-Python/Pandas is the authority for
-numerical results.
-
-Never invent numbers.
-
-Never guess.
-
-Never calculate from sample rows.
-
-Never change numbers returned by Python.
-
-Use the verified result exactly.
-
-Explain the result clearly.
-
-Keep the answer concise.
-
-"""
-
-
-    try:
-
-        response = client.models.generate_content(
-
-            model="gemini-2.5-flash",
-
-            contents=prompt
-
-        )
-
-
-        return response.text
-
-
-    except Exception as error:
-
-        return (
-            f"Gemini error: {error}"
-        )
-
-
-# ============================================================
-# 25. SQL
-# ============================================================
-
-def execute_sql(
-    df,
-    query
-):
-
-    connection = sqlite3.connect(
-        ":memory:"
-    )
-
-
-    try:
-
-        df.to_sql(
-
-            "data",
-
-            connection,
-
-            index=False,
-
-            if_exists="replace"
-
-        )
-
-
-        return pd.read_sql_query(
-
-            query,
-
-            connection
-
-        )
-
-
-    finally:
-
-        connection.close()
-
-
-# ============================================================
-# 26. HEADER
-# ============================================================
-
-header_left, header_right = st.columns(
-    [7, 2]
-)
-
-
-with header_left:
-
-    st.markdown(
-
-        '<div class="main-title">'
-        '🤖 AI Data Analyst'
-        '</div>',
-
-        unsafe_allow_html=True
-
-    )
-
-
-    st.markdown(
-
-        '<div class="subtitle">'
-        'Intelligent Excel analysis • '
-        'AI insights • Interactive visualizations'
-        '</div>',
-
-        unsafe_allow_html=True
-
-    )
-
-
-with header_right:
-
-    if client:
-
-        st.markdown(
-
-            '<div class="status-online">'
-            '● Gemini Online'
-            '</div>',
-
-            unsafe_allow_html=True
-
-        )
-
-    else:
-
-        st.markdown(
-
-            '<div class="status-offline">'
-            '● Gemini Offline'
-            '</div>',
-
-            unsafe_allow_html=True
-
-        )
-
-
-# ============================================================
-# 27. SIDEBAR
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
 
     st.markdown(
-        "## 🤖 AI Data Analyst"
+        '<div class="sidebar-logo">🤖 <span>AI Data Analyst</span></div>',
+        unsafe_allow_html=True
     )
-
-
-    st.caption(
-        "Your intelligent data assistant"
-    )
-
-
-    st.divider()
-
 
     st.markdown(
-        "### 📁 Upload Dataset"
+        '<div class="sidebar-section">NAVIGATION</div>',
+        unsafe_allow_html=True
     )
 
+    page = st.radio(
+        "",
+        [
+            "🏠 Dashboard",
+            "🤖 AI Analyst",
+            "🗄️ Data Explorer",
+            "📊 Statistics",
+            "📈 Interactive Charts",
+            "💻 SQL Query"
+        ],
+        label_visibility="collapsed"
+    )
+
+    st.markdown(
+        '<div class="sidebar-section">DATA MANAGEMENT</div>',
+        unsafe_allow_html=True
+    )
 
     uploaded_file = st.file_uploader(
-
-        "Choose Excel or CSV",
-
-        type=[
-            "xlsx",
-            "xls",
-            "csv"
-        ]
-
+        "Upload Dataset",
+        type=["csv", "xlsx", "xls"],
+        help="Upload a CSV or Excel dataset"
     )
 
+    if uploaded_file:
 
-    st.divider()
+        try:
 
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+
+            st.session_state.df = df
+            st.session_state.file_name = uploaded_file.name
+
+            st.success("✓ File loaded successfully")
+
+        except Exception as e:
+
+            st.error(f"Unable to read file: {e}")
+
+    if st.session_state.df is not None:
+
+        st.markdown(
+            f"""
+            <div style="
+                background:#1e293b;
+                border:1px solid #334155;
+                border-radius:12px;
+                padding:15px;
+                margin-top:10px;
+            ">
+                <b>📄 {st.session_state.file_name}</b>
+                <br>
+                <small style="color:#94a3b8;">
+                    {len(st.session_state.df):,} rows ×
+                    {len(st.session_state.df.columns)} columns
+                </small>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.markdown(
-        "### 🚀 Capabilities"
-    )
-
-
-    st.markdown(
-        """
-        📊 Data Analysis
-
-        📈 Interactive Charts
-
-        📐 Mean / Median / Mode
-
-        🤖 Gemini AI
-
-        🔎 Data Explorer
-
-        🗃️ SQL Queries
-
-        🎯 Exact Pandas Results
-        """
-    )
-
-
-    st.divider()
-
-
-    if client:
-
-        st.success(
-            "Gemini API connected"
-        )
-
-    else:
-
-        st.warning(
-            "Gemini API unavailable"
-        )
-
-
-# ============================================================
-# 28. LOAD FILE
-# ============================================================
-
-if uploaded_file is not None:
-
-    try:
-
-        df = load_dataset(
-            uploaded_file
-        )
-
-
-        st.session_state.df = df
-
-
-        st.session_state.file_name = (
-
-            uploaded_file.name
-
-        )
-
-
-    except Exception as error:
-
-        st.error(
-            f"File error: {error}"
-        )
-
-        st.stop()
-
-
-# ============================================================
-# 29. NO FILE SCREEN
-# ============================================================
-
-if st.session_state.df is None:
-
-    st.markdown(
-
-        """
-        <div class="glass-panel">
-
-        <h2>
-        Welcome to your AI Data Analyst 👋
-        </h2>
-
-        <p style="color:#94a3b8;font-size:16px;">
-
-        Upload an Excel or CSV file and ask
-        questions about your data using
-        natural language.
-
-        </p>
-
-        </div>
-        """,
-
+        '<div class="sidebar-section">CAPABILITIES</div>',
         unsafe_allow_html=True
-
     )
 
+    st.markdown("""
+    ✓ AI-Powered Analysis  
+    <br>
+    ✓ Smart Visualizations  
+    <br>
+    ✓ Natural Language Queries  
+    <br>
+    ✓ Statistical Insights  
+    <br>
+    ✓ SQL Query Support
+    """, unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    st.markdown("---")
 
-
-    features = [
-
-        (
-            "📊",
-            "Smart Analysis",
-            "Analyze your complete dataset using Pandas."
-        ),
-
-        (
-            "📈",
-            "Visualizations",
-            "Generate interactive charts."
-        ),
-
-        (
-            "📐",
-            "Statistics",
-            "Mean, median, mode and more."
-        ),
-
-        (
-            "🤖",
-            "Gemini AI",
-            "Get natural-language explanations."
-        )
-
-    ]
+    st.caption("Built with ❤️ using Streamlit")
 
 
-    for column, feature in zip(
+# ============================================================
+# DATA CHECK
+# ============================================================
 
-        [c1, c2, c3, c4],
+df = st.session_state.df
 
-        features
+if df is None:
 
-    ):
+    st.markdown(
+        '<div class="page-title">Dashboard</div>',
+        unsafe_allow_html=True
+    )
 
-        with column:
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Upload a CSV or Excel dataset to begin your analysis.'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
-            st.markdown(
-
-                f"""
-                <div class="feature-card">
-
-                <div class="feature-icon">
-                {feature[0]}
-                </div>
-
-                <div class="feature-title">
-                {feature[1]}
-                </div>
-
-                <div class="feature-text">
-                {feature[2]}
-                </div>
-
-                </div>
-                """,
-
-                unsafe_allow_html=True
-
-            )
-
+    st.info(
+        "👈 Upload your dataset using the sidebar to get started."
+    )
 
     st.stop()
 
 
 # ============================================================
-# 30. CURRENT DATASET
-# ============================================================
-
-df = st.session_state.df
-
-
-# ============================================================
-# 31. KPI CALCULATIONS
+# COMMON DATA INFORMATION
 # ============================================================
 
 rows = len(df)
-
 columns = len(df.columns)
-
-missing = int(
-
-    df.isna()
-    .sum()
-    .sum()
-
-)
-
-duplicates = int(
-
-    df.duplicated()
-    .sum()
-
-)
+missing = int(df.isna().sum().sum())
+duplicates = int(df.duplicated().sum())
 
 
 # ============================================================
-# 32. DASHBOARD TITLE
+# DASHBOARD
 # ============================================================
 
-st.markdown(
-    "## 📊 Dashboard"
-)
+if page == "🏠 Dashboard":
 
-
-st.caption(
-
-    f"Currently loaded: "
-    f"**{st.session_state.file_name}**"
-
-)
-
-
-# ============================================================
-# 33. KPI CARDS
-# ============================================================
-
-k1, k2, k3, k4 = st.columns(4)
-
-
-kpis = [
-
-    (
-        k1,
-        "📄",
-        "Rows",
-        f"{rows:,}"
-    ),
-
-    (
-        k2,
-        "📋",
-        "Columns",
-        f"{columns:,}"
-    ),
-
-    (
-        k3,
-        "⚠️",
-        "Missing Values",
-        f"{missing:,}"
-    ),
-
-    (
-        k4,
-        "♻️",
-        "Duplicates",
-        f"{duplicates:,}"
+    st.markdown(
+        '<div class="page-title">Dashboard</div>',
+        unsafe_allow_html=True
     )
 
-]
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Overview of your dataset and AI insights'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
+    if gemini_client:
+        st.markdown(
+            '<div class="gemini-online">🟢 Gemini Online</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.warning(
+            "Gemini is not configured. Add GEMINI_API_KEY to Streamlit Secrets."
+        )
 
-for column, icon, label, value in kpis:
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with column:
+    # --------------------------------------------------------
+    # METRICS
+    # --------------------------------------------------------
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-icon">📄</div>
+                <div class="metric-label">TOTAL ROWS</div>
+                <div class="metric-value">{rows:,}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c2:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-icon">📋</div>
+                <div class="metric-label">TOTAL COLUMNS</div>
+                <div class="metric-value">{columns}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c3:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-icon">⚠️</div>
+                <div class="metric-label">MISSING VALUES</div>
+                <div class="metric-value">{missing:,}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c4:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-icon">♻️</div>
+                <div class="metric-label">DUPLICATES</div>
+                <div class="metric-value">{duplicates:,}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --------------------------------------------------------
+    # DATASET PREVIEW + INFO
+    # --------------------------------------------------------
+
+    left, right = st.columns([2.1, 1])
+
+    with left:
 
         st.markdown(
+            '<div class="content-card">',
+            unsafe_allow_html=True
+        )
 
+        st.markdown(
+            '<div class="card-title">📋 Dataset Preview</div>',
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            '<div class="card-description">'
+            'Preview the first records of your dataset'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        st.dataframe(
+            df.head(8),
+            use_container_width=True,
+            hide_index=False
+        )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+
+        st.markdown(
             f"""
-            <div class="kpi-card">
+            <div class="content-card">
 
-            <div class="kpi-icon">
-            {icon}
-            </div>
+            <div class="card-title">ℹ️ Dataset Info</div>
 
-            <div class="kpi-label">
-            {label}
-            </div>
+            <br>
 
-            <div class="kpi-value">
-            {value}
-            </div>
+            <b>File Name</b>
+            <p>{st.session_state.file_name}</p>
+
+            <b>File Type</b>
+            <p>{'Excel' if st.session_state.file_name.endswith(('xlsx','xls')) else 'CSV'}</p>
+
+            <b>Rows</b>
+            <p>{rows:,}</p>
+
+            <b>Columns</b>
+            <p>{columns}</p>
 
             </div>
             """,
-
             unsafe_allow_html=True
-
         )
 
-
-st.write("")
-
-
-# ============================================================
-# 34. MAIN TABS
-# ============================================================
-
-dashboard_tab, statistics_tab, ai_tab, data_tab, sql_tab = st.tabs(
-
-    [
-
-        "🏠 Dashboard",
-
-        "📐 Statistics",
-
-        "🤖 AI Analyst",
-
-        "🔎 Data Explorer",
-
-        "🗃️ SQL"
-
-    ]
-
-)
-
-
-# ============================================================
-# 35. DASHBOARD TAB
-# ============================================================
-
-with dashboard_tab:
+    # --------------------------------------------------------
+    # STATISTICS
+    # --------------------------------------------------------
 
     st.markdown(
-        "### 📄 Dataset Preview"
+        '<div class="content-card">',
+        unsafe_allow_html=True
     )
-
-
-    st.dataframe(
-
-        df.head(20),
-
-        use_container_width=True,
-
-        height=400
-
-    )
-
 
     st.markdown(
-        "### 📈 Quick Visualization"
+        '<div class="card-title">📊 Quick Statistics</div>',
+        unsafe_allow_html=True
     )
 
-
-    numeric_columns = list(
-
-        df.select_dtypes(
-            include=np.number
-        ).columns
-
-    )
-
-
-    if numeric_columns:
-
-        selected_column = st.selectbox(
-
-            "Select numerical column",
-
-            numeric_columns
-
-        )
-
-
-        fig = px.histogram(
-
-            df,
-
-            x=selected_column,
-
-            title=(
-
-                f"Distribution of "
-                f"{selected_column}"
-
-            )
-
-        )
-
-
-        fig.update_layout(
-
-            template="plotly_dark",
-
-            paper_bgcolor="rgba(0,0,0,0)",
-
-            plot_bgcolor="rgba(0,0,0,0)"
-
-        )
-
-
-        st.plotly_chart(
-
-            fig,
-
-            use_container_width=True
-
-        )
-
-
-    else:
-
-        st.info(
-            "No numerical columns available."
-        )
-
-
-# ============================================================
-# 36. STATISTICS TAB
-# ============================================================
-
-with statistics_tab:
-
-    st.markdown(
-        "## 📐 Descriptive Statistics"
-    )
-
-
-    st.caption(
-
-        "Statistical summary calculated "
-        "directly from the complete dataset "
-        "using Pandas."
-
-    )
-
-
-    statistics_df = (
-        descriptive_statistics(
-            df
-        )
-    )
-
-
-    if statistics_df.empty:
-
-        st.warning(
-
-            "No numerical columns were found "
-            "in the uploaded dataset."
-
-        )
-
-    else:
-
-        # ----------------------------------------------------
-        # Mean
-        # ----------------------------------------------------
-
-        st.markdown(
-            "### 📊 Mean"
-        )
-
-
-        st.info(
-
-            "Mean = Sum of all values ÷ "
-            "Number of values."
-
-        )
-
-
-        # ----------------------------------------------------
-        # Median
-        # ----------------------------------------------------
-
-        st.markdown(
-            "### 📍 Median"
-        )
-
-
-        st.info(
-
-            "Median = Middle value when "
-            "the data is arranged in order."
-
-        )
-
-
-        # ----------------------------------------------------
-        # Mode
-        # ----------------------------------------------------
-
-        st.markdown(
-            "### 🔁 Mode"
-        )
-
-
-        st.info(
-
-            "Mode = Most frequently occurring value."
-
-        )
-
-
-        # ----------------------------------------------------
-        # COMPLETE TABLE
-        # ----------------------------------------------------
-
-        st.markdown(
-            "### 📋 Complete Statistical Table"
-        )
-
+    numeric_df = df.select_dtypes(include=np.number)
+
+    if not numeric_df.empty:
+
+        stats = pd.DataFrame({
+            "Mean": numeric_df.mean(),
+            "Median": numeric_df.median(),
+            "Mode": numeric_df.mode().iloc[0],
+            "Minimum": numeric_df.min(),
+            "Maximum": numeric_df.max()
+        })
 
         st.dataframe(
-
-            statistics_df,
-
-            use_container_width=True,
-
-            hide_index=True,
-
-            height=450
-
+            stats.round(2),
+            use_container_width=True
         )
 
+    else:
 
-        # ----------------------------------------------------
-        # DOWNLOAD
-        # ----------------------------------------------------
-
-        statistics_csv = (
-
-            statistics_df
-
-            .to_csv(
-                index=False
-            )
-
-            .encode(
-                "utf-8"
-            )
-
+        st.info(
+            "No numerical columns available for statistical analysis."
         )
 
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        st.download_button(
-
-            "⬇️ Download Statistics",
-
-            data=statistics_csv,
-
-            file_name=(
-                "descriptive_statistics.csv"
-            ),
-
-            mime="text/csv"
-
-        )
-
-
-        # ----------------------------------------------------
-        # OPTIONAL INDIVIDUAL COLUMN
-        # ----------------------------------------------------
-
-        st.markdown(
-            "### 🔍 Analyze One Column"
-        )
-
-
-        selected_stat_column = st.selectbox(
-
-            "Select a numerical column",
-
-            statistics_df["Column"].tolist()
-
-        )
-
-
-        selected_row = statistics_df[
-
-            statistics_df["Column"]
-            == selected_stat_column
-
-        ].iloc[0]
-
-
-        s1, s2, s3, s4 = st.columns(4)
-
-
-        with s1:
-
-            st.metric(
-
-                "Mean",
-
-                selected_row["Mean"]
-
-            )
-
-
-        with s2:
-
-            st.metric(
-
-                "Median",
-
-                selected_row["Median"]
-
-            )
-
-
-        with s3:
-
-            st.metric(
-
-                "Mode",
-
-                selected_row["Mode"]
-
-            )
-
-
-        with s4:
-
-            st.metric(
-
-                "Std Dev",
-
-                selected_row["Std Dev"]
-
-            )
-
-
-# ============================================================
-# 37. AI ANALYST TAB
-# ============================================================
-
-with ai_tab:
+    # --------------------------------------------------------
+    # ASK YOUR DATA
+    # --------------------------------------------------------
 
     st.markdown(
-        "## 🤖 Ask Your Data"
-    )
-
-
-    st.caption(
-        "Ask questions in normal language."
-    )
-
-
-    st.markdown(
-
         """
-        **Try asking:**
+        <div class="ai-card">
 
-        `How many students are from Hyderabad?`
+        <div class="ai-title">
+        ✨ Ask Your Data
+        </div>
 
-        `How many students are in Class 1?`
-    """
+        <div class="ai-description">
+        Ask anything about your dataset using natural language.
+        </div>
 
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-
 
     question = st.text_area(
-
         "Ask a question",
-
         placeholder=(
-
-            "Example: "
-            "How many students are from Hyderabad?"
-
+            "Example: How many students are there in each class?"
         ),
-
-        height=100
-
+        height=120,
+        label_visibility="collapsed"
     )
 
-
     if st.button(
-
         "✨ Analyze",
-
-        type="primary",
-
         use_container_width=True
-
     ):
 
         if not question.strip():
 
-            st.warning(
+            st.warning("Please enter a question.")
 
-                "Please enter a question."
+        elif not gemini_client:
 
+            st.error(
+                "Gemini is not configured. "
+                "Please add GEMINI_API_KEY to Streamlit Secrets."
             )
 
         else:
 
-            # =================================================
-            # EXACT PANDAS ANALYSIS
-            # =================================================
+            with st.spinner("🤖 Gemini is analyzing your data..."):
 
-            exact_result = exact_analysis(
+                try:
 
-                df,
+                    data_sample = df.head(50).to_csv(index=False)
 
-                question
+                    prompt = f"""
+You are an expert data analyst.
 
-            )
+Analyze the following dataset and answer the user's question.
 
+Dataset:
+{data_sample}
 
-            # =================================================
-            # CHART
-            # =================================================
+User question:
+{question}
 
-            chart_type = detect_chart(
+Give a clear and concise answer.
+Use numbers from the dataset whenever possible.
+"""
 
-                question
-
-            )
-
-
-            chart_data = None
-
-
-            if chart_type:
-
-                chart_data = create_chart_data(
-
-                    df,
-
-                    question,
-
-                    chart_type
-
-                )
-
-
-            # =================================================
-            # VERIFIED RESULT
-            # =================================================
-
-            if exact_result["exact"]:
-
-                st.markdown(
-
-                    '<span class="exact-badge">'
-                    '✓ VERIFIED BY PANDAS'
-                    '</span>',
-
-                    unsafe_allow_html=True
-
-                )
-
-
-                result = (
-
-                    exact_result["result"]
-
-                )
-
-
-                result_type = (
-
-                    result["type"]
-
-                )
-
-
-                # ---------------------------------------------
-                # LOCATION
-                # ---------------------------------------------
-
-                if (
-
-                    result_type
-                    == "location_count"
-
-                ):
-
-                    st.success(
-
-                        f"There are "
-                        f"**{result['count']:,}** "
-                        f"students from "
-                        f"**{result['location']}**."
-
+                    response = gemini_client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=prompt
                     )
 
+                    st.markdown("### 🤖 Gemini Analysis")
+                    st.write(response.text)
 
-                # ---------------------------------------------
-                # CLASS
-                # ---------------------------------------------
+                except Exception as e:
 
-                elif (
-
-                    result_type
-                    == "class_count"
-
-                ):
-
-                    st.success(
-
-                        f"There are "
-                        f"**{result['count']:,}** "
-                        f"students in "
-                        f"**{result['class']}**."
-
-                    )
-
-
-                # ---------------------------------------------
-                # GRADE
-                # ---------------------------------------------
-
-                elif (
-
-                    result_type
-                    == "grade_count"
-
-                ):
-
-                    st.success(
-
-                        f"There are "
-                        f"**{result['count']:,}** "
-                        f"students with "
-                        f"**Grade {result['grade']}**."
-
-                    )
-
-
-                # ---------------------------------------------
-                # CLASS + GRADE
-                # ---------------------------------------------
-
-                elif (
-
-                    result_type
-                    == "class_grade_count"
-
-                ):
-
-                    st.success(
-
-                        f"**{result['count']:,}** "
-                        f"students from "
-                        f"**{result['class']}** "
-                        f"received "
-                        f"**Grade {result['grade']}**."
-
-                    )
-
-
-                # ---------------------------------------------
-                # GRADE BY CLASS
-                # ---------------------------------------------
-
-                elif (
-
-                    result_type
-                    == "grade_by_class"
-
-                ):
-
-                    st.markdown(
-
-                        f"### Grade "
-                        f"{result['grade']} "
-                        f"Students by Class"
-
-                    )
-
-
-                    result_df = pd.DataFrame(
-
-                        list(
-                            result["counts"]
-                            .items()
-                        ),
-
-                        columns=[
-
-                            "Class",
-
-                            "Students"
-
-                        ]
-
-                    )
-
-
-                    st.dataframe(
-
-                        result_df,
-
-                        use_container_width=True,
-
-                        hide_index=True
-
-                    )
-
-
-                    st.info(
-
-                        f"Total Grade "
-                        f"{result['grade']} "
-                        f"students: "
-                        f"**{result['total']:,}**"
-
-                    )
-
-
-                # ---------------------------------------------
-                # CLASS DISTRIBUTION
-                # ---------------------------------------------
-
-                elif (
-
-                    result_type
-                    == "class_distribution"
-
-                ):
-
-                    result_df = pd.DataFrame(
-
-                        list(
-                            result["counts"]
-                            .items()
-                        ),
-
-                        columns=[
-
-                            "Class",
-
-                            "Students"
-
-                        ]
-
-                    )
-
-
-                    st.dataframe(
-
-                        result_df,
-
-                        use_container_width=True,
-
-                        hide_index=True
-
-                    )
-
-
-                # ---------------------------------------------
-                # GRADE DISTRIBUTION
-                # ---------------------------------------------
-
-                elif (
-
-                    result_type
-                    == "grade_distribution"
-
-                ):
-
-                    result_df = pd.DataFrame(
-
-                        list(
-                            result["counts"]
-                            .items()
-                        ),
-
-                        columns=[
-
-                            "Grade",
-
-                            "Students"
-
-                        ]
-
-                    )
-
-
-                    st.dataframe(
-
-                        result_df,
-
-                        use_container_width=True,
-
-                        hide_index=True
-
-                    )
-
-
-                # ---------------------------------------------
-                # VIEW JSON
-                # ---------------------------------------------
-
-                with st.expander(
-
-                    "🔍 View verified calculation"
-
-                ):
-
-                    st.json(
-
-                        result
-
-                    )
-
-
-            else:
-
-                # =================================================
-                # GEMINI ONLY FOR NON-EXACT QUESTIONS
-                # =================================================
-
-                with st.spinner(
-
-                    "Gemini is analyzing..."
-
-                ):
-
-                    answer = ask_gemini(
-
-                        df,
-
-                        question,
-
-                        exact_result
-
-                    )
-
-
-                st.markdown(
-
-                    '<div class="ai-message">'
-                    f'{answer}'
-                    '</div>',
-
-                    unsafe_allow_html=True
-
-                )
-
-
-            # =================================================
-            # VISUALIZATION
-            # =================================================
-
-            if chart_type:
-
-                st.markdown(
-                    "### 📊 Visualization"
-                )
-
-
-                if chart_data is not None:
-
-                    display_chart(
-
-                        chart_data,
-
-                        chart_type,
-
-                        question
-
-                    )
-
-
-                    with st.expander(
-
-                        "View chart data"
-
-                    ):
-
-                        st.dataframe(
-
-                            chart_data,
-
-                            use_container_width=True,
-
-                            hide_index=True
-
-                        )
-
-                else:
-
-                    st.warning(
-
-                        "The visualization request "
-                        "was detected, but the "
-                        "required data could not "
-                        "be identified."
-
+                    st.error(
+                        f"Gemini analysis failed: {e}"
                     )
 
 
 # ============================================================
-# 38. DATA EXPLORER
+# AI ANALYST
 # ============================================================
 
-with data_tab:
+elif page == "🤖 AI Analyst":
 
     st.markdown(
-        "## 🔎 Data Explorer"
+        '<div class="page-title">🤖 AI Analyst</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Ask questions about your data using natural language'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    question = st.text_area(
+        "Your question",
+        placeholder="Example: What is the average Math Score?",
+        height=150
+    )
+
+    if st.button("✨ Analyze Data", use_container_width=True):
+
+        if not question:
+
+            st.warning("Please enter a question.")
+
+        elif not gemini_client:
+
+            st.error("Gemini API is not configured.")
+
+        else:
+
+            with st.spinner("Analyzing..."):
+
+                try:
+
+                    prompt = f"""
+You are a professional data analyst.
+
+Dataset columns:
+{list(df.columns)}
+
+Dataset summary:
+{df.describe(include="all").to_string()}
+
+Question:
+{question}
+
+Provide a useful answer.
+"""
+
+                    response = gemini_client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=prompt
+                    )
+
+                    st.markdown("### 🤖 Analysis Result")
+                    st.write(response.text)
+
+                except Exception as e:
+
+                    st.error(str(e))
+
+
+# ============================================================
+# DATA EXPLORER
+# ============================================================
+
+elif page == "🗄️ Data Explorer":
+
+    st.markdown(
+        '<div class="page-title">🗄️ Data Explorer</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Explore and inspect your complete dataset'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        height=600
     )
 
 
-    selected_column = st.selectbox(
+# ============================================================
+# STATISTICS
+# ============================================================
 
-        "Select column",
+elif page == "📊 Statistics":
 
-        list(
-            df.columns
+    st.markdown(
+        '<div class="page-title">📊 Statistics</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Mean, Median, Mode and descriptive statistics'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    numeric_df = df.select_dtypes(include=np.number)
+
+    if numeric_df.empty:
+
+        st.warning(
+            "Your dataset does not contain numerical columns."
         )
-
-    )
-
-
-    search = st.text_input(
-
-        "Search inside column"
-
-    )
-
-
-    if search:
-
-        filtered_df = df[
-
-            df[selected_column]
-
-            .astype(str)
-
-            .str.contains(
-
-                search,
-
-                case=False,
-
-                na=False
-
-            )
-
-        ]
 
     else:
 
-        filtered_df = df
+        statistics = pd.DataFrame({
+            "Mean": numeric_df.mean(),
+            "Median": numeric_df.median(),
+            "Mode": numeric_df.mode().iloc[0],
+            "Std Dev": numeric_df.std(),
+            "Minimum": numeric_df.min(),
+            "Maximum": numeric_df.max()
+        })
 
-
-    st.info(
-
-        f"{len(filtered_df):,} rows found"
-
-    )
-
-
-    st.dataframe(
-
-        filtered_df,
-
-        use_container_width=True,
-
-        height=500
-
-    )
-
-
-    csv_data = (
-
-        filtered_df
-
-        .to_csv(
-            index=False
+        st.markdown(
+            '<div class="content-card">',
+            unsafe_allow_html=True
         )
 
-        .encode(
-            "utf-8"
+        st.markdown(
+            '<div class="card-title">'
+            '📈 Mean / Median / Mode'
+            '</div>',
+            unsafe_allow_html=True
         )
 
-    )
+        st.dataframe(
+            statistics.round(2),
+            use_container_width=True
+        )
 
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.download_button(
+        selected_column = st.selectbox(
+            "Select numerical column",
+            numeric_df.columns
+        )
 
-        "⬇️ Download Filtered Data",
+        fig = px.histogram(
+            df,
+            x=selected_column,
+            title=f"Distribution of {selected_column}",
+            marginal="box"
+        )
 
-        data=csv_data,
-
-        file_name="filtered_data.csv",
-
-        mime="text/csv"
-
-    )
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
 
 # ============================================================
-# 39. SQL
+# INTERACTIVE CHARTS
 # ============================================================
 
-with sql_tab:
+elif page == "📈 Interactive Charts":
 
     st.markdown(
-        "## 🗃️ SQL Data Analysis"
+        '<div class="page-title">📈 Interactive Charts</div>',
+        unsafe_allow_html=True
     )
 
-
-    st.info(
-
-        "Your uploaded dataset is available "
-        "as the SQL table `data`."
-
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Create interactive visualizations from your dataset'
+        '</div>',
+        unsafe_allow_html=True
     )
 
-
-    query = st.text_area(
-
-        "SQL Query",
-
-        value=(
-
-            "SELECT * "
-            "FROM data "
-            "LIMIT 10"
-
-        ),
-
-        height=130
-
+    numeric_columns = list(
+        df.select_dtypes(include=np.number).columns
     )
 
+    all_columns = list(df.columns)
 
-    if st.button(
+    chart_type = st.selectbox(
+        "Chart Type",
+        [
+            "Histogram",
+            "Bar Chart",
+            "Scatter Plot",
+            "Box Plot",
+            "Line Chart"
+        ]
+    )
 
-        "▶ Run SQL",
+    if chart_type == "Histogram":
 
-        use_container_width=True
+        column = st.selectbox(
+            "Select column",
+            all_columns
+        )
 
-    ):
+        fig = px.histogram(
+            df,
+            x=column,
+            title=f"Distribution of {column}"
+        )
 
-        try:
+    elif chart_type == "Bar Chart":
 
-            sql_result = execute_sql(
+        x_column = st.selectbox(
+            "X-axis",
+            all_columns
+        )
 
+        if numeric_columns:
+
+            y_column = st.selectbox(
+                "Y-axis",
+                numeric_columns
+            )
+
+            fig = px.bar(
                 df,
-
-                query
-
+                x=x_column,
+                y=y_column,
+                title=f"{y_column} by {x_column}"
             )
 
+        else:
 
-            st.success(
+            st.warning("No numerical columns available.")
+            st.stop()
 
-                "Query executed successfully."
+    elif chart_type == "Scatter Plot":
 
+        if len(numeric_columns) < 2:
+
+            st.warning(
+                "At least two numerical columns are required."
             )
+            st.stop()
 
+        x_column = st.selectbox(
+            "X-axis",
+            numeric_columns
+        )
 
-            st.dataframe(
+        y_column = st.selectbox(
+            "Y-axis",
+            numeric_columns,
+            index=1
+        )
 
-                sql_result,
+        fig = px.scatter(
+            df,
+            x=x_column,
+            y=y_column,
+            title=f"{y_column} vs {x_column}"
+        )
 
-                use_container_width=True
+    elif chart_type == "Box Plot":
 
+        column = st.selectbox(
+            "Select numerical column",
+            numeric_columns
+        )
+
+        fig = px.box(
+            df,
+            y=column,
+            title=f"Box Plot - {column}"
+        )
+
+    else:
+
+        if not numeric_columns:
+
+            st.warning(
+                "No numerical columns available."
             )
+            st.stop()
 
+        column = st.selectbox(
+            "Select numerical column",
+            numeric_columns
+        )
 
-        except Exception as error:
+        fig = px.line(
+            df,
+            y=column,
+            title=f"{column} Trend"
+        )
 
-            st.error(
-
-                f"SQL Error: {error}"
-
-            )
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
 
 # ============================================================
-# 40. FOOTER
+# SQL QUERY
+# ============================================================
+
+elif page == "💻 SQL Query":
+
+    st.markdown(
+        '<div class="page-title">💻 SQL Query</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Query your dataset using SQL'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    st.info(
+        "SQL execution can be connected to your existing MCP SQL server here."
+    )
+
+    sql_query = st.text_area(
+        "Enter SQL query",
+        placeholder="SELECT * FROM data LIMIT 10;",
+        height=150
+    )
+
+    if st.button(
+        "▶ Execute Query",
+        use_container_width=True
+    ):
+
+        st.warning(
+            "Connect this section to your existing MCP SQL tool."
+        )
+
+
+# ============================================================
+# FOOTER
 # ============================================================
 
 st.markdown(
-
     """
     <div class="footer">
-
-    🤖 AI Data Analyst &nbsp;•&nbsp;
-    Pandas &nbsp;•&nbsp;
-    Plotly &nbsp;•&nbsp;
-    Gemini &nbsp;•&nbsp;
-    Streamlit
-
+        AI Data Analyst • Intelligent Data Analysis •
+        Interactive Visualizations
     </div>
     """,
-
     unsafe_allow_html=True
-
 )
